@@ -1,0 +1,5 @@
+# Email Checker for OpenClaw
+-e .
+
+# Dependencies
+imap-tools>=0.5.0
