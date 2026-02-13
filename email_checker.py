@@ -38,34 +38,43 @@ from typing import Optional, List, Dict
 import urllib.request
 import urllib.error
 
-# Configuration - Copy this file to config.py and fill in your values
-# DO NOT commit config.py to GitHub!
+# Load configuration from config.py (not committed to GitHub)
+try:
+    from . import email_config as config
+    MAILCOW_IMAP_HOST = getattr(config, 'MAILCOW_IMAP_HOST', '192.168.1.5')
+    MAILCOW_IMAP_PORT = getattr(config, 'MAILCOW_IMAP_PORT', 993)
+    MAILCOW_USERNAME = getattr(config, 'MAILCOW_USERNAME', 'hijirii@dtype.info')
+    MAILCOW_PASSWORD = os.environ.get('MAILCOW_PASSWORD') or getattr(config, 'MAILCOW_PASSWORD', None)
+    SMTP_HOST = getattr(config, 'SMTP_HOST', '192.168.1.5')
+    SMTP_PORT = getattr(config, 'SMTP_PORT', 25)
+    OPENCLAW_GATEWAY = getattr(config, 'OPENCLAW_GATEWAY', 'localhost')
+    OPENCLAW_PORT = getattr(config, 'OPENCLAW_PORT', 18789)
+    CHECK_INTERVAL = getattr(config, 'CHECK_INTERVAL', 300)
+    LAST_CHECK_FILE = getattr(config, 'LAST_CHECK_FILE', '/home/hijirii/.openclaw/workspace/.last_email_check')
+except ImportError:
+    # Fallback to environment variables or defaults
+    MAILCOW_IMAP_HOST = os.environ.get('MAILCOW_IMAP_HOST', '192.168.1.5')
+    MAILCOW_IMAP_PORT = int(os.environ.get('MAILCOW_IMAP_PORT', '993'))
+    MAILCOW_USERNAME = os.environ.get('MAILCOW_USERNAME', 'hijirii@dtype.info')
+    MAILCOW_PASSWORD = os.environ.get('MAILCOW_PASSWORD')
+    SMTP_HOST = os.environ.get('SMTP_HOST', '192.168.1.5')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', '25'))
+    OPENCLAW_GATEWAY = os.environ.get('OPENCLAW_GATEWAY', 'localhost')
+    OPENCLAW_PORT = int(os.environ.get('OPENCLAW_PORT', '18789'))
+    CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', '300'))
+    LAST_CHECK_FILE = os.environ.get('LAST_CHECK_FILE', '/home/hijirii/.openclaw/workspace/.last_email_check')
 
-# Default configuration (used as fallback)
-DEFAULT_CONFIG = {
-    'MAILCOW_IMAP_HOST': 'localhost',  # Local mailcow
-    'MAILCOW_IMAP_PORT': '993',
-    'MAILCOW_USERNAME': 'YOUR_EMAIL@example.com',
-    'MAILCOW_PASSWORD': 'YOUR_PASSWORD',  # Set via environment variable!
-    'SMTP_HOST': 'localhost',
-    'SMTP_PORT': '25',
-    'OPENCLAW_GATEWAY': 'localhost',  # AI agent reads from here
-    'OPENCLAW_PORT': '18789',
-    'CHECK_INTERVAL': '300',  # Check every 5 minutes
-    'LAST_CHECK_FILE': '/home/hijirii/.openclaw/workspace/.last_email_check',
-}
-
-# Example: Set passwords via environment variables
-# export MAILCOW_PASSWORD="your-password"
+# Verify required credentials
+if not MAILCOW_PASSWORD:
+    print("Warning: MAILCOW_PASSWORD not set. Set via environment variable or config.py")
 
 class EmailChecker:
-    def __init__(self, config: Dict[str, str]):
-        self.config = config
+    def __init__(self):
         self.last_checked = self._load_last_checked()
     
     def _load_last_checked(self) -> Optional[datetime]:
         """Load last check time from file"""
-        path = self.config['LAST_CHECK_FILE']
+        path = LAST_CHECK_FILE
         if os.path.exists(path):
             try:
                 with open(path, 'r') as f:
@@ -76,7 +85,7 @@ class EmailChecker:
     
     def _save_last_checked(self):
         """Save current time as last check time"""
-        path = self.config['LAST_CHECK_FILE']
+        path = LAST_CHECK_FILE
         try:
             with open(path, 'w') as f:
                 f.write(datetime.now().isoformat())
@@ -85,10 +94,10 @@ class EmailChecker:
     
     def check_imap_emails(self) -> List[Dict]:
         """Check IMAP server for new emails"""
-        host = self.config['MAILCOW_IMAP_HOST']
-        port = int(self.config['MAILCOW_IMAP_PORT'])
-        username = self.config['MAILCOW_USERNAME']
-        password = self.config['MAILCOW_PASSWORD']
+        host = MAILCOW_IMAP_HOST
+        port = MAILCOW_IMAP_PORT
+        username = MAILCOW_USERNAME
+        password = MAILCOW_PASSWORD
         
         if not password:
             print("Error: MAILCOW_PASSWORD not set")
@@ -174,8 +183,8 @@ class EmailChecker:
     
     def forward_via_openclaw(self, email_data: Dict):
         """Forward email to OpenClaw channel for AI agent to process"""
-        gateway = self.config['OPENCLAW_GATEWAY']
-        port = self.config['OPENCLAW_PORT']
+        gateway = OPENCLAW_GATEWAY
+        port = OPENCLAW_PORT
         
         # Send to OpenClaw channel - AI agent can read and process
         url = f"http://{gateway}:{port}/api/message"
@@ -204,8 +213,8 @@ class EmailChecker:
     
     def forward_via_smtp(self, email_data: Dict):
         """Forward email via local SMTP (mailcow) -备用方法"""
-        host = self.config['SMTP_HOST']
-        port = int(self.config['SMTP_PORT'])
+        host = SMTP_HOST
+        port = SMTP_PORT
         # No longer sending to recipients - AI agent processes via OpenClaw channel
         print(f"📧 [SMTP备用] {email_data['subject']}")
     
@@ -227,11 +236,11 @@ class EmailChecker:
     
     def run_forever(self):
         """Continuously check for new emails"""
-        interval = int(self.config['CHECK_INTERVAL'])
+        interval = CHECK_INTERVAL
         
         print(f"Email Checker Started - For AI Agent")
         print(f"====================================")
-        print(f"IMAP: {self.config['MAILCOW_IMAP_HOST']}:{self.config['MAILCOW_IMAP_PORT']}")
+        print(f"IMAP: {MAILCOW_IMAP_HOST}:{MAILCOW_IMAP_PORT}")
         print(f"Sending to: OpenClaw channel (AI agent reads from here)")
         print(f"Check interval: {interval} seconds")
         print()
@@ -265,13 +274,10 @@ class EmailChecker:
 
 
 def main():
-    # Load configuration from environment
-    config = {k: os.environ.get(k, v) for k, v in DEFAULT_CONFIG.items()}
-    
     # Check for --once flag
     run_once = '--once' in sys.argv
     
-    checker = EmailChecker(config)
+    checker = EmailChecker()
     
     if run_once:
         checker.run_once()
