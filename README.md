@@ -10,10 +10,10 @@ This repository provides email checking tools for the OpenClaw AI gateway system
 
 | Language | Status | File | Notes |
 |----------|--------|------|-------|
-| **Python** | ✅ Ready | `email_checker.py` | Production ready, works now |
-| **Rust** | 📦 Source | `src/main.rs` | Requires Rust installation |
+| **Python** | ✅ Production | `email_checker.py` | Full IMAP implementation |
+| **Rust** | ✅ Compiles | `target/release/email_checker` | Configuration & control |
 
-### Python Version (Recommended)
+### Python Version (Recommended - Full Features)
 
 ```bash
 # Install dependencies
@@ -29,17 +29,14 @@ python3 email_checker.py --once
 python3 email_checker.py
 ```
 
-### Rust Version (In Development)
+### Rust Version (Simplified)
 
 ```bash
-# Install Rust first (if not installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
 # Build
 cargo build --release
 
 # Run
-./target/release/email_checker
+MAILCOW_PASSWORD="your-password" ./target/release/email_checker --once
 ```
 
 ## Configuration
@@ -61,6 +58,12 @@ All configuration via environment variables:
 ```
 New Email → IMAP Check → OpenClaw Channel → AI Agent Reads & Processes
 ```
+
+## Dependencies Installed
+
+- ✅ Rust 1.93.1
+- ✅ OpenSSL development libraries
+- ✅ pkg-config
 
 ## License
 
