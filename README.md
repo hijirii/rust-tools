@@ -2,6 +2,12 @@
 
 AI-powered email monitoring tool that checks IMAP and forwards emails to OpenClaw channels for automatic processing.
 
+## Repository
+
+https://github.com/hijirii/rust-tools
+
+AI-powered email monitoring tool that checks IMAP and forwards emails to OpenClaw channels for automatic processing.
+
 ## Purpose
 
 ```
