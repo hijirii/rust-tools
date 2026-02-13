@@ -1,46 +1,45 @@
-# Email Checker for OpenClaw
+# Rust Tools for OpenClaw
 
-AI-powered email monitoring tool that checks IMAP and forwards emails to OpenClaw channels for automatic processing.
+**Repository**: https://github.com/hijirii/rust-tools
 
-## Repository
+## Email Checker Tools
 
-https://github.com/hijirii/rust-tools
+This repository provides email checking tools for the OpenClaw AI gateway system.
 
-AI-powered email monitoring tool that checks IMAP and forwards emails to OpenClaw channels for automatic processing.
+### Two Implementations
 
-## Purpose
+| Language | Status | File | Notes |
+|----------|--------|------|-------|
+| **Python** | ✅ Ready | `email_checker.py` | Production ready, works now |
+| **Rust** | 📦 Source | `src/main.rs` | Requires Rust installation |
 
-```
-New Email → IMAP Check → OpenClaw Channel → AI Agent Reads & Processes
-```
-
-## Features
-
-- IMAP email monitoring with SSL support
-- Automatic forwarding to OpenClaw channels
-- Configurable check intervals
-- First-run detection (only new emails)
-- Rate limiting and error handling
-
-## Usage
+### Python Version (Recommended)
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
 # Set environment variables
-export MAILCOW_IMAP_HOST="your-mailcow-host"
-export MAILCOW_IMAP_PORT="993"
-export MAILCOW_USERNAME="your-email"
 export MAILCOW_PASSWORD="your-password"
-export OPENCLAW_GATEWAY="localhost"
-export OPENCLAW_PORT="18789"
 
 # Run once
 python3 email_checker.py --once
 
 # Run continuously
 python3 email_checker.py
+```
+
+### Rust Version (In Development)
+
+```bash
+# Install Rust first (if not installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Build
+cargo build --release
+
+# Run
+./target/release/email_checker
 ```
 
 ## Configuration
@@ -57,10 +56,11 @@ All configuration via environment variables:
 | `OPENCLAW_PORT` | `18789` | OpenClaw port |
 | `CHECK_INTERVAL` | `300` | Check interval in seconds |
 
-## Requirements
+## Architecture
 
-- Python 3.8+
-- IMAP access to mailcow server
+```
+New Email → IMAP Check → OpenClaw Channel → AI Agent Reads & Processes
+```
 
 ## License
 

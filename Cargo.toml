@@ -1,0 +1,28 @@
+[package]
+name = "email_checker"
+version = "0.1.0"
+edition = "2021"
+description = "Email checker for OpenClaw - IMAP to channel forwarder"
+
+[dependencies]
+# IMAP support
+imap = "2"
+
+# HTTP client for OpenClaw API
+reqwest = { version = "0.11", features = ["json"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+#dotenv = "0.15"
+
+# Logging
+env_logger = "0.10"
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.5"
+
+[[bin]]
+name = "email_checker"
+path = "src/main.rs"
