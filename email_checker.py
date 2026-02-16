@@ -37,10 +37,15 @@ from datetime import datetime
 from typing import Optional, List, Dict
 import urllib.request
 import urllib.error
+import sys
+import os as _os
+_config_path = _os.path.dirname(_os.path.abspath(__file__))
+if _config_path not in sys.path:
+    sys.path.insert(0, _config_path)
 
-# Load configuration from config.py (not committed to GitHub)
+# Load configuration from email_config.py (not committed to GitHub)
 try:
-    from . import email_config as config
+    import email_config as config
     MAILCOW_IMAP_HOST = getattr(config, 'MAILCOW_IMAP_HOST', '192.168.1.5')
     MAILCOW_IMAP_PORT = getattr(config, 'MAILCOW_IMAP_PORT', 993)
     MAILCOW_USERNAME = getattr(config, 'MAILCOW_USERNAME', 'hijirii@dtype.info')
@@ -51,6 +56,7 @@ try:
     OPENCLAW_PORT = getattr(config, 'OPENCLAW_PORT', 18789)
     CHECK_INTERVAL = getattr(config, 'CHECK_INTERVAL', 300)
     LAST_CHECK_FILE = getattr(config, 'LAST_CHECK_FILE', '/home/hijirii/.openclaw/workspace/.last_email_check')
+    OPENCLAW_HOOK_TOKEN = os.environ.get('OPENCLAW_HOOK_TOKEN', 'email-checker-hook-secret-2026')
 except ImportError:
     # Fallback to environment variables or defaults
     MAILCOW_IMAP_HOST = os.environ.get('MAILCOW_IMAP_HOST', '192.168.1.5')
@@ -63,6 +69,7 @@ except ImportError:
     OPENCLAW_PORT = int(os.environ.get('OPENCLAW_PORT', '18789'))
     CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', '300'))
     LAST_CHECK_FILE = os.environ.get('LAST_CHECK_FILE', '/home/hijirii/.openclaw/workspace/.last_email_check')
+    OPENCLAW_HOOK_TOKEN = os.environ.get('OPENCLAW_HOOK_TOKEN', 'email-checker-hook-secret-2026')
 
 # Verify required credentials
 if not MAILCOW_PASSWORD:
@@ -92,6 +99,26 @@ class EmailChecker:
         except Exception as e:
             print(f"Warning: Could not save last check time: {e}")
     
+    def _get_last_email_id(self) -> Optional[int]:
+        """Load last processed email ID from file"""
+        path = LAST_CHECK_FILE.replace('last_email_check', 'last_email_id')
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    return int(f.read().strip())
+            except Exception as e:
+                print(f"Warning: Could not load last email ID: {e}")
+        return None
+    
+    def _save_last_email_id(self, email_id: int):
+        """Save last processed email ID"""
+        path = LAST_CHECK_FILE.replace('last_email_check', 'last_email_id')
+        try:
+            with open(path, 'w') as f:
+                f.write(str(email_id))
+        except Exception as e:
+            print(f"Warning: Could not save last email ID: {e}")
+    
     def check_imap_emails(self) -> List[Dict]:
         """Check IMAP server for new emails"""
         host = MAILCOW_IMAP_HOST
@@ -119,14 +146,23 @@ class EmailChecker:
             # Select inbox
             mail.select('INBOX')
             
-            # Search for unseen emails
-            if self.last_checked:
-                # Search by date
-                date_str = self.last_checked.strftime("%d-%b-%Y")
-                status, messages = mail.search(None, f'SINCE {date_str} UNSEEN')
+            # Search for emails since last check (use date, not UNSEEN flag)
+            # UNSEEN gets cleared after checking, so use date-based search instead
+            last_email_id = self._get_last_email_id()
+            
+            if last_email_id:
+                # Get emails with ID greater than last processed
+                status, all_messages = mail.search(None, 'ALL')
+                if status == 'OK' and all_messages[0]:
+                    msg_ids = [int(x) for x in all_messages[0].split() if int(x) > last_email_id]
+                    messages = (b' '.join(str(x).encode() for x in msg_ids),)
+                else:
+                    messages = (b'',)
             else:
-                # First run - get all unseen
-                status, messages = mail.search(None, 'UNSEEN')
+                # First run - get all recent emails (past 7 days)
+                from datetime import timedelta
+                week_ago = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
+                status, messages = mail.search(None, f'SINCE {week_ago}')
             
             if status == 'OK' and messages[0]:
                 for msg_id in messages[0].split():
@@ -218,19 +254,66 @@ class EmailChecker:
         # No longer sending to recipients - AI agent processes via OpenClaw channel
         print(f"📧 [SMTP备用] {email_data['subject']}")
     
+    def notify_via_webhook(self, email_data: Dict):
+        """Notify OpenClaw via webhook (immediate trigger)"""
+        gateway = OPENCLAW_GATEWAY
+        port = OPENCLAW_PORT
+        token = OPENCLAW_HOOK_TOKEN
+        
+        url = f"http://{gateway}:{port}/hooks/wake"
+        
+        payload = {
+            'text': f"新邮件: {email_data['subject']} from {email_data['from']}",
+            'mode': 'now'
+        }
+        
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=data, method='POST')
+            req.add_header('Content-Type', 'application/json')
+            req.add_header('Authorization', f'Bearer {token}')
+            
+            with urllib.request.urlopen(req, timeout=10) as response:
+                print(f"✓ Webhook triggered: {email_data['subject']}")
+        
+        except urllib.error.URLError as e:
+            print(f"✗ Webhook failed: {e}")
+        except Exception as e:
+            print(f"✗ Webhook error: {e}")
+    
     def run_once(self):
         """Check emails once and exit - for AI agent to process"""
         emails = self.check_imap_emails()
         
-        for email_data in emails:
-            if self.last_checked:
-                # Only show new emails
+        # Save last email ID to avoid duplicates
+        if emails:
+            for email_data in emails:
                 print(f"📧 New: {email_data['subject']} from {email_data['from']}")
-                # Send to OpenClaw channel for AI agent
+                # Send webhook notification (immediate trigger)
+                self.notify_via_webhook(email_data)
+                # Also send to OpenClaw channel
                 self.forward_via_openclaw(email_data)
-            else:
-                # First run - just show
-                print(f"📧 (First run) {email_data['subject']} from {email_data['from']}")
+            
+            # Get highest email ID and save
+            host = MAILCOW_IMAP_HOST
+            port = MAILCOW_IMAP_PORT
+            username = MAILCOW_USERNAME
+            password = MAILCOW_PASSWORD
+            
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            mail = imaplib.IMAP4_SSL(host=host, port=port, ssl_context=context)
+            mail.login(username, password)
+            mail.select('INBOX')
+            status, messages = mail.search(None, 'ALL')
+            if status == 'OK' and messages[0]:
+                all_ids = [int(x) for x in messages[0].split()]
+                if all_ids:
+                    self._save_last_email_id(max(all_ids))
+                    print(f"✓ Saved last email ID: {max(all_ids)}")
+            mail.logout()
         
         self._save_last_checked()
     
@@ -257,7 +340,9 @@ class EmailChecker:
                 
                 for email_data in emails:
                     print(f"📧 New: {email_data['subject']}")
-                    # Send to OpenClaw channel for AI agent to read
+                    # Trigger webhook (immediate notification)
+                    self.notify_via_webhook(email_data)
+                    # Also send to OpenClaw channel
                     self.forward_via_openclaw(email_data)
                     time.sleep(1)  # Rate limit
                 

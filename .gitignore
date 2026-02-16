@@ -27,4 +27,9 @@ Thumbs.db
 *.pem
 *.key
 target/
+# Email config - actual config files should not be committed
+email_config.py
+email_config.py.bak
+# Keep template in git
+!email_config.py.template
 target/

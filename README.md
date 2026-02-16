@@ -33,6 +33,15 @@ MAILCOW_PASSWORD="your-password" ./target/release/email_checker
 
 ## Configuration
 
+Create `email_config.py` based on `email_config.py.template`:
+
+```bash
+cp email_config.py.template email_config.py
+# Edit email_config.py with your credentials
+```
+
+Or use environment variables:
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MAILCOW_IMAP_HOST` | `localhost` | IMAP server |
@@ -42,6 +51,7 @@ MAILCOW_PASSWORD="your-password" ./target/release/email_checker
 | `OPENCLAW_GATEWAY` | `localhost` | OpenClaw gateway |
 | `OPENCLAW_PORT` | `18789` | OpenClaw port |
 | `CHECK_INTERVAL` | `300` | Check interval (seconds) |
+| `OPENCLAW_HOOK_TOKEN` | - | Webhook token for notifications |
 
 ## Architecture
 
