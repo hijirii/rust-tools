@@ -165,9 +165,10 @@ class EmailChecker:
                 status, messages = mail.search(None, f'SINCE {week_ago}')
             
             if status == 'OK' and messages[0]:
-                for msg_id in messages[0].split():
+                for msg_id_bytes in messages[0].split():
+                    msg_id = int(msg_id_bytes)
                     # Fetch email
-                    status, msg_data = mail.fetch(msg_id, '(RFC822)')
+                    status, msg_data = mail.fetch(str(msg_id), '(RFC822)')
                     if status == 'OK' and msg_data:
                         for response_part in msg_data:
                             if isinstance(response_part, tuple):
@@ -183,6 +184,7 @@ class EmailChecker:
                                 body = self._get_email_body(email_msg)
                                 
                                 emails.append({
+                                    'id': msg_id,
                                     'subject': subject,
                                     'from': from_addr,
                                     'date': date_str,
@@ -205,66 +207,42 @@ class EmailChecker:
             for part in msg.walk():
                 if part.get_content_type() == "text/plain":
                     try:
-                        body = part.get_content()
+                        body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
                         break
                     except:
                         pass
         else:
             if msg.get_content_type() == "text/plain":
                 try:
-                    body = msg.get_content()
+                    body = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
                 except:
                     body = str(msg.get_payload())
         return body
     
-    def forward_via_openclaw(self, email_data: Dict):
-        """Forward email to OpenClaw channel for AI agent to process"""
-        gateway = OPENCLAW_GATEWAY
-        port = OPENCLAW_PORT
-        
-        # Send to OpenClaw channel - AI agent can read and process
-        url = f"http://{gateway}:{port}/api/message"
-        
-        payload = {
-            'channel': 'openclaw',  # Send to OpenClaw channel (AI can read)
-            'message': f"📧 New Email Received\n\n"
-                     f"From: {email_data['from']}\n"
-                     f"Subject: {email_data['subject']}\n"
-                     f"Date: {email_data['date']}\n\n"
-                     f"Preview:\n{email_data['body'][:500]}...",
-        }
-        
-        try:
-            data = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(url, data=data, method='POST')
-            req.add_header('Content-Type', 'application/json')
+    def notify_batch_webhook(self, emails: List[Dict]):
+        """Notify OpenClaw via agent hook with a batch of emails"""
+        if not emails:
+            return
             
-            with urllib.request.urlopen(req, timeout=10) as response:
-                print(f"✓ Sent to OpenClaw channel: {email_data['subject']}")
-        
-        except urllib.error.URLError as e:
-            print(f"✗ Failed to send to OpenClaw: {e}")
-        except Exception as e:
-            print(f"✗ Error: {e}")
-    
-    def forward_via_smtp(self, email_data: Dict):
-        """Forward email via local SMTP (mailcow) -备用方法"""
-        host = SMTP_HOST
-        port = SMTP_PORT
-        # No longer sending to recipients - AI agent processes via OpenClaw channel
-        print(f"📧 [SMTP备用] {email_data['subject']}")
-    
-    def notify_via_webhook(self, email_data: Dict):
-        """Notify OpenClaw via webhook (immediate trigger)"""
         gateway = OPENCLAW_GATEWAY
         port = OPENCLAW_PORT
         token = OPENCLAW_HOOK_TOKEN
         
-        url = f"http://{gateway}:{port}/hooks/wake"
+        url = f"http://{gateway}:{port}/hooks/agent"
         
+        lines = [f"📧 收到 {len(emails)} 封新邮件，请你作为邮件分诊台 (Triage Agent) 对以下邮件进行分类，并使用 sessions_send 工具转发给对应负责的智能体 （如果找不到归属则转发给 main）。不要直接回复我，而是要完成转发工作：\n"]
+        for i, em in enumerate(emails, 1):
+            lines.append(f"[{i}] From: {em['from']}")
+            lines.append(f"    Subject: {em['subject']}")
+            lines.append(f"    Date: {em['date']}")
+            lines.append(f"    Snippet: {em['body'][:200].replace(chr(10), ' ')}")
+            lines.append("")
+            
         payload = {
-            'text': f"新邮件: {email_data['subject']} from {email_data['from']}",
-            'mode': 'now'
+            'message': "\n".join(lines),
+            'name': 'Email Checker',
+            'agentId': 'email',
+            'wakeMode': 'now'
         }
         
         try:
@@ -274,46 +252,26 @@ class EmailChecker:
             req.add_header('Authorization', f'Bearer {token}')
             
             with urllib.request.urlopen(req, timeout=10) as response:
-                print(f"✓ Webhook triggered: {email_data['subject']}")
+                result = json.loads(response.read().decode('utf-8'))
+                print(f"✓ Batch Agent dispatched ({len(emails)} emails) -> runId: {result.get('runId', 'unknown')}")
         
         except urllib.error.URLError as e:
             print(f"✗ Webhook failed: {e}")
         except Exception as e:
             print(f"✗ Webhook error: {e}")
-    
+
     def run_once(self):
         """Check emails once and exit - for AI agent to process"""
         emails = self.check_imap_emails()
         
-        # Save last email ID to avoid duplicates
         if emails:
-            for email_data in emails:
-                print(f"📧 New: {email_data['subject']} from {email_data['from']}")
-                # Send webhook notification (immediate trigger)
-                self.notify_via_webhook(email_data)
-                # Also send to OpenClaw channel
-                self.forward_via_openclaw(email_data)
+            print(f"📧 Found {len(emails)} new emails, sending batch notification...")
+            self.notify_batch_webhook(emails)
             
-            # Get highest email ID and save
-            host = MAILCOW_IMAP_HOST
-            port = MAILCOW_IMAP_PORT
-            username = MAILCOW_USERNAME
-            password = MAILCOW_PASSWORD
-            
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            
-            mail = imaplib.IMAP4_SSL(host=host, port=port, ssl_context=context)
-            mail.login(username, password)
-            mail.select('INBOX')
-            status, messages = mail.search(None, 'ALL')
-            if status == 'OK' and messages[0]:
-                all_ids = [int(x) for x in messages[0].split()]
-                if all_ids:
-                    self._save_last_email_id(max(all_ids))
-                    print(f"✓ Saved last email ID: {max(all_ids)}")
-            mail.logout()
+            # Save last email ID to avoid duplicates
+            max_id = max(em['id'] for em in emails)
+            self._save_last_email_id(max_id)
+            print(f"✓ Saved last email ID: {max_id}")
         
         self._save_last_checked()
     
@@ -338,13 +296,14 @@ class EmailChecker:
             try:
                 emails = self.check_imap_emails()
                 
-                for email_data in emails:
-                    print(f"📧 New: {email_data['subject']}")
-                    # Trigger webhook (immediate notification)
-                    self.notify_via_webhook(email_data)
-                    # Also send to OpenClaw channel
-                    self.forward_via_openclaw(email_data)
-                    time.sleep(1)  # Rate limit
+                if emails:
+                    print(f"📧 Found {len(emails)} new emails, sending batch notification...")
+                    self.notify_batch_webhook(emails)
+                    
+                    # Save last email ID to avoid duplicates
+                    max_id = max(em['id'] for em in emails)
+                    self._save_last_email_id(max_id)
+                    print(f"✓ Saved last email ID: {max_id}")
                 
                 self._save_last_checked()
                 
@@ -371,4 +330,60 @@ def main():
 
 
 if __name__ == '__main__':
+    # Handle --reply option
+    if '--reply' in sys.argv:
+        import argparse
+        parser = argparse.ArgumentParser(description='Send email reply')
+        parser.add_argument('--reply', dest='email_id', nargs='?', const='fake', help='Email ID to reply to')
+        parser.add_argument('--to', dest='to_addr', required=True, help='Recipient email address')
+        parser.add_argument('--subject', dest='subject', required=True, help='Email subject')
+        parser.add_argument('--body', dest='body', required=True, help='Email body')
+        parser.add_argument('--in-reply-to', dest='in_reply_to', help='In-Reply-To header')
+        parser.add_argument('--references', dest='references', help='References header')
+        args = parser.parse_args()
+        
+        # Send via a separate function or use existing one
+        # For simplicity, we just reuse the send_reply_via_smtp logic
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from email.header import Header
+        
+        host = SMTP_HOST
+        port = SMTP_PORT
+        username = MAILCOW_USERNAME
+        password = MAILCOW_PASSWORD
+        
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        msg = MIMEMultipart()
+        msg['From'] = username
+        msg['To'] = args.to_addr
+        msg['Subject'] = Header(args.subject, 'utf-8')
+        
+        if args.in_reply_to:
+            msg['In-Reply-To'] = args.in_reply_to
+        if args.references:
+            msg['References'] = args.references
+        
+        msg.attach(MIMEText(args.body, 'plain', 'utf-8'))
+        
+        try:
+            if port == 465:
+                with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as server:
+                    server.login(username, password)
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(host, port, timeout=30) as server:
+                    server.starttls(context=context)
+                    server.login(username, password)
+                    server.send_message(msg)
+            print(f"✓ Reply sent to {args.to_addr}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"✗ Failed to send reply: {e}")
+            sys.exit(1)
+            
     main()
