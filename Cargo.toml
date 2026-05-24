@@ -1,5 +1,5 @@
 [package]
-name = "email_checker"
+name = "email-checker"
 version = "0.2.0"
 edition = "2021"
 description = "Email checker for OpenClaw - Rust implementation"
@@ -9,13 +9,14 @@ authors = ["Hijirii"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-
-[dev-dependencies]
-
-[[bin]]
-name = "email_checker"
-path = "src/main.rs"
+imap = "2.3"
+native-tls = "0.2"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 
 [profile.release]
 opt-level = 3
 lto = true
+
+[[bin]]
+name = "email-checker"
+path = "src/main.rs"
